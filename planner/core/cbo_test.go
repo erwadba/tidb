@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	. "github.com/pingcap/check"
@@ -92,16 +91,19 @@ func (s *testAnalyzeSuite) TestExplainAnalyze(c *C) {
 	tk.MustExec("insert into t1 values (1, 1, 1), (2, 2, 2), (3, 3, 3), (4, 4, 4), (5, 5, 5)")
 	tk.MustExec("insert into t2 values (2, 22), (3, 33), (5, 55), (233, 2), (333, 3), (3434, 5)")
 	tk.MustExec("analyze table t1, t2")
-	rs := tk.MustQuery("explain analyze select t1.a, t1.b, sum(t1.c) from t1 join t2 on t1.a = t2.b where t1.a > 1")
-	c.Assert(len(rs.Rows()), Equals, 10)
-	for _, row := range rs.Rows() {
-		c.Assert(len(row), Equals, 9)
-		execInfo := row[5].(string)
-		c.Assert(strings.Contains(execInfo, "time"), Equals, true)
-		c.Assert(strings.Contains(execInfo, "loops"), Equals, true)
-		if strings.Contains(row[0].(string), "Reader") || strings.Contains(row[0].(string), "IndexLookUp") {
-			c.Assert(strings.Contains(execInfo, "cop_task"), Equals, true)
-		}
+	var input []string
+	var output []struct {
+		SQL  string
+		Plan []string
+	}
+	s.testData.GetTestCases(c, &input, &output)
+	for i, sql := range input {
+		plan := tk.MustQuery(sql)
+		s.testData.OnRecord(func() {
+			output[i].SQL = sql
+			output[i].Plan = s.testData.ConvertRowsToStrings(plan.Rows())
+		})
+		plan.Check(testkit.Rows(output[i].Plan...))
 	}
 }
 
@@ -125,17 +127,20 @@ func (s *testAnalyzeSuite) TestCBOWithoutAnalyze(c *C) {
 	testKit.MustExec("insert into t2 values (1), (2), (3), (4), (5), (6)")
 	c.Assert(h.DumpStatsDeltaToKV(handle.DumpAll), IsNil)
 	c.Assert(h.Update(dom.InfoSchema()), IsNil)
-	testKit.MustQuery("explain select * from t1, t2 where t1.a = t2.a").Check(testkit.Rows(
-		"HashJoin_8 7.49 root  inner join, equal:[eq(test.t1.a, test.t2.a)]",
-		"├─TableReader_15(Build) 5.99 root  data:Selection_14",
-		"│ └─Selection_14 5.99 cop[tikv]  not(isnull(test.t2.a))",
-		"│   └─TableFullScan_13 6.00 cop[tikv] table:t2 keep order:false, stats:pseudo",
-		"└─TableReader_12(Probe) 5.99 root  data:Selection_11",
-		"  └─Selection_11 5.99 cop[tikv]  not(isnull(test.t1.a))",
-		"    └─TableFullScan_10 6.00 cop[tikv] table:t1 keep order:false, stats:pseudo",
-	))
-	testKit.MustQuery("explain format = 'hint' select * from t1, t2 where t1.a = t2.a").Check(testkit.Rows(
-		"use_index(@`sel_1` `test`.`t1` ), use_index(@`sel_1` `test`.`t2` ), hash_join(@`sel_1` `test`.`t1`)"))
+	var input []string
+	var output []struct {
+		SQL  string
+		Plan []string
+	}
+	s.testData.GetTestCases(c, &input, &output)
+	for i, sql := range input {
+		plan := testKit.MustQuery(sql)
+		s.testData.OnRecord(func() {
+			output[i].SQL = sql
+			output[i].Plan = s.testData.ConvertRowsToStrings(plan.Rows())
+		})
+		plan.Check(testkit.Rows(output[i].Plan...))
+	}
 }
 
 func (s *testAnalyzeSuite) TestStraightJoin(c *C) {
@@ -182,14 +187,20 @@ func (s *testAnalyzeSuite) TestTableDual(c *C) {
 
 	c.Assert(h.DumpStatsDeltaToKV(handle.DumpAll), IsNil)
 	c.Assert(h.Update(dom.InfoSchema()), IsNil)
-
-	testKit.MustQuery(`explain select * from t where 1 = 0`).Check(testkit.Rows(
-		`TableDual_6 0.00 root  rows:0`,
-	))
-
-	testKit.MustQuery(`explain select * from t where 1 = 1 limit 0`).Check(testkit.Rows(
-		`TableDual_5 0.00 root  rows:0`,
-	))
+	var input []string
+	var output []struct {
+		SQL  string
+		Plan []string
+	}
+	s.testData.GetTestCases(c, &input, &output)
+	for i, sql := range input {
+		plan := testKit.MustQuery(sql)
+		s.testData.OnRecord(func() {
+			output[i].SQL = sql
+			output[i].Plan = s.testData.ConvertRowsToStrings(plan.Rows())
+		})
+		plan.Check(testkit.Rows(output[i].Plan...))
+	}
 }
 
 func (s *testAnalyzeSuite) TestEstimation(c *C) {
@@ -217,12 +228,20 @@ func (s *testAnalyzeSuite) TestEstimation(c *C) {
 	}
 	c.Assert(h.DumpStatsDeltaToKV(handle.DumpAll), IsNil)
 	c.Assert(h.Update(dom.InfoSchema()), IsNil)
-	testKit.MustQuery("explain select count(*) from t group by a").Check(testkit.Rows(
-		"HashAgg_9 2.00 root  group by:test.t.a, funcs:count(Column#4)->Column#3",
-		"└─TableReader_10 2.00 root  data:HashAgg_5",
-		"  └─HashAgg_5 2.00 cop[tikv]  group by:test.t.a, funcs:count(1)->Column#4",
-		"    └─TableFullScan_8 8.00 cop[tikv] table:t keep order:false",
-	))
+	var input []string
+	var output []struct {
+		SQL  string
+		Plan []string
+	}
+	s.testData.GetTestCases(c, &input, &output)
+	for i, sql := range input {
+		plan := testKit.MustQuery(sql)
+		s.testData.OnRecord(func() {
+			output[i].SQL = sql
+			output[i].Plan = s.testData.ConvertRowsToStrings(plan.Rows())
+		})
+		plan.Check(testkit.Rows(output[i].Plan...))
+	}
 }
 
 func constructInsertSQL(i, n int) string {
@@ -419,17 +438,30 @@ func (s *testAnalyzeSuite) TestOutdatedAnalyze(c *C) {
 	c.Assert(h.DumpStatsDeltaToKV(handle.DumpAll), IsNil)
 	c.Assert(h.Update(dom.InfoSchema()), IsNil)
 	statistics.RatioOfPseudoEstimate.Store(10.0)
-	testKit.MustQuery("explain select * from t where a <= 5 and b <= 5").Check(testkit.Rows(
-		"TableReader_7 29.77 root  data:Selection_6",
-		"└─Selection_6 29.77 cop[tikv]  le(test.t.a, 5), le(test.t.b, 5)",
-		"  └─TableFullScan_5 80.00 cop[tikv] table:t keep order:false",
-	))
+	var input []string
+	var output []struct {
+		SQL  string
+		Plan []string
+	}
+	s.testData.GetTestCases(c, &input, &output)
+	for i, sql := range input {
+		plan := testKit.MustQuery(sql)
+		s.testData.OnRecord(func() {
+			output[i].SQL = sql
+			output[i].Plan = s.testData.ConvertRowsToStrings(plan.Rows())
+		})
+		plan.Check(testkit.Rows(output[i].Plan...))
+	}
 	statistics.RatioOfPseudoEstimate.Store(0.7)
-	testKit.MustQuery("explain select * from t where a <= 5 and b <= 5").Check(testkit.Rows(
-		"TableReader_7 8.84 root  data:Selection_6",
-		"└─Selection_6 8.84 cop[tikv]  le(test.t.a, 5), le(test.t.b, 5)",
-		"  └─TableFullScan_5 80.00 cop[tikv] table:t keep order:false, stats:pseudo",
-	))
+	s.testData.GetTestCases(c, &input, &output)
+	for i, sql := range input {
+		plan := testKit.MustQuery(sql)
+		s.testData.OnRecord(func() {
+			output[i].SQL = sql
+			output[i].Plan = s.testData.ConvertRowsToStrings(plan.Rows())
+		})
+		plan.Check(testkit.Rows(output[i].Plan...))
+	}
 }
 
 func (s *testAnalyzeSuite) TestPreparedNullParam(c *C) {
@@ -556,13 +588,20 @@ func (s *testAnalyzeSuite) TestInconsistentEstimation(c *C) {
 	dom.StatsHandle().Update(dom.InfoSchema())
 	// Using the histogram (a, b) to estimate `a = 5` will get 1.22, while using the CM Sketch to estimate
 	// the `a = 5 and c = 5` will get 10, it is not consistent.
-	tk.MustQuery("explain select * from t use index(ab) where a = 5 and c = 5").
-		Check(testkit.Rows(
-			"IndexLookUp_8 10.00 root  ",
-			"├─IndexRangeScan_5(Build) 12.50 cop[tikv] table:t, index:ab(a, b) range:[5,5], keep order:false",
-			"└─Selection_7(Probe) 10.00 cop[tikv]  eq(test.t.c, 5)",
-			"  └─TableRowIDScan_6 12.50 cop[tikv] table:t keep order:false",
-		))
+	var input []string
+	var output []struct {
+		SQL  string
+		Plan []string
+	}
+	s.testData.GetTestCases(c, &input, &output)
+	for i, sql := range input {
+		plan := tk.MustQuery(sql)
+		s.testData.OnRecord(func() {
+			output[i].SQL = sql
+			output[i].Plan = s.testData.ConvertRowsToStrings(plan.Rows())
+		})
+		plan.Check(testkit.Rows(output[i].Plan...))
+	}
 }
 
 func newStoreWithBootstrap() (kv.Storage, *domain.Domain, error) {
@@ -772,7 +811,20 @@ func (s *testAnalyzeSuite) TestIssue9805(c *C) {
 		)
 	`)
 	// Test when both tables are empty, EXPLAIN ANALYZE for IndexLookUp would not panic.
-	tk.MustQuery("explain analyze select /*+ TIDB_INLJ(t2) */ t1.id, t2.a from t1 join t2 on t1.a = t2.d where t1.b = 't2' and t1.d = 4")
+	var input []string
+	var output []struct {
+		SQL  string
+		Plan []string
+	}
+	s.testData.GetTestCases(c, &input, &output)
+	for i, sql := range input {
+		plan := tk.MustQuery(sql)
+		s.testData.OnRecord(func() {
+			output[i].SQL = sql
+			output[i].Plan = s.testData.ConvertRowsToStrings(plan.Rows())
+		})
+		plan.Check(testkit.Rows(output[i].Plan...))
+	}
 }
 
 func (s *testAnalyzeSuite) TestLimitCrossEstimation(c *C) {
@@ -859,7 +911,19 @@ func (s *testAnalyzeSuite) TestUpdateProjEliminate(c *C) {
 	tk.MustExec("use test")
 	tk.MustExec("drop table if exists t")
 	tk.MustExec("create table t(a int, b int)")
-	tk.MustExec("explain update t t1, (select distinct b from t) t2 set t1.b = t2.b")
+	var input []string
+	var output []struct {
+		SQL  string
+		Plan []string
+	}
+	s.testData.GetTestCases(c, &input, &output)
+	for i, tt := range input {
+		s.testData.OnRecord(func() {
+			output[i].SQL = tt
+			output[i].Plan = s.testData.ConvertRowsToStrings(tk.MustQuery(tt).Rows())
+		})
+		tk.MustQuery(tt).Check(testkit.Rows(output[i].Plan...))
+	}
 }
 
 func (s *testAnalyzeSuite) TestTiFlashCostModel(c *C) {

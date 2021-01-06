@@ -202,5 +202,55 @@
       // Should choose idx_b instead of idx_a, because idx_b would scan only 1 row.
       "explain select * from t where a >= 999900 order by b limit 1"
     ]
+  },
+  {
+    "name": "TestExplainAnalyze",
+    "cases": [
+      "explain analyze select t1.a, t1.b, sum(t1.c) from t1 join t2 on t1.a = t2.b where t1.a > 1"
+    ]
+  },
+  {
+    "name": "TestCBOWithoutAnalyze",
+    "cases": [
+      "explain select * from t1, t2 where t1.a = t2.a",
+      "explain format = 'hint' select * from t1, t2 where t1.a = t2.a"
+    ]
+  },
+  {
+    "name": "TestEstimation",
+    "cases": [
+      "explain select count(*) from t group by a"
+    ]
+  },
+  {
+    "name": "TestOutdatedAnalyze",
+    "cases": [
+      "explain select * from t where a <= 5 and b <= 5"
+    ]
+  },
+  {
+    "name": "TestInconsistentEstimation",
+    "cases": [
+      "explain select * from t use index(ab) where a = 5 and c = 5"
+    ]
+  },
+  {
+    "name": "TestUpdateProjEliminate",
+    "cases": [
+      "explain update t t1, (select distinct b from t) t2 set t1.b = t2.b"
+    ]
+  },
+  {
+    "name": "TestTableDual",
+    "cases": [
+      "explain select * from t where 1 = 0",
+      "explain select * from t where 1 = 1 limit 0"
+    ]
+  },
+  {
+    "name": "TestIssue9805",
+    "cases": [
+      "explain analyze select /*+ TIDB_INLJ(t2) */ t1.id, t2.a from t1 join t2 on t1.a = t2.d where t1.b = 't2' and t1.d = 4"
+    ]
   }
 ]

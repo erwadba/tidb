@@ -404,5 +404,140 @@
         ]
       }
     ]
+  },
+  {
+    "Name": "TestExplainAnalyze",
+    "Cases": [
+      {
+        "SQL": "explain analyze select t1.a, t1.b, sum(t1.c) from t1 join t2 on t1.a = t2.b where t1.a > 1",
+        "Plan": [
+          "Projection_8 1.00 1 root  time:366.6µs, loops:2, Concurrency:OFF test.t1.a, test.t1.b, Column#8 2.12 KB N/A",
+          "└─StreamAgg_10 1.00 1 root  time:360.6µs, loops:2 funcs:sum(Column#16)->Column#8, funcs:firstrow(Column#17)->test.t1.a, funcs:firstrow(Column#18)->test.t1.b N/A N/A",
+          "  └─Projection_52 4.00 3 root  time:345.6µs, loops:2, Concurrency:OFF cast(test.t1.c, decimal(32,0) BINARY)->Column#16, test.t1.a, test.t1.b 1.09 KB N/A",
+          "    └─HashJoin_51 4.00 3 root  time:330µs, loops:2, build_hash_table:{total:236µs, fetch:214.2µs, build:21.8µs}, probe:{concurrency:5, total:1.17ms, max:252.6µs, probe:16µs, fetch:1.15ms} inner join, equal:[eq(test.t1.a, test.t2.b)] 24.7 KB 0 Bytes",
+          "      ├─TableReader_32(Build) 4.00 4 root  time:52µs, loops:2, cop_task: {num: 1, max: 300.8µs, proc_keys: 0, rpc_num: 1, rpc_time: 263.3µs, copr_cache_hit_ratio: 0.00} data:Selection_31 182 Bytes N/A",
+          "      │ └─Selection_31 4.00 4 cop[tikv]  tikv_task:{time:35.7µs, loops:5}, scan_detail: {total_process_keys: 0, total_keys: 0, rocksdb: {delete_skipped_count: 0, key_skipped_count: 0, block: {cache_hit_count: 0, read_count: 0, read_byte: 0 Bytes}}} gt(test.t1.a, 1), not(isnull(test.t1.a)) N/A N/A",
+          "      │   └─TableFullScan_30 5.00 5 cop[tikv] table:t1 tikv_task:{time:9.2µs, loops:5}, scan_detail: {total_process_keys: 0, total_keys: 0, rocksdb: {delete_skipped_count: 0, key_skipped_count: 0, block: {cache_hit_count: 0, read_count: 0, read_byte: 0 Bytes}}} keep order:false N/A N/A",
+          "      └─TableReader_29(Probe) 6.00 6 root  time:186.3µs, loops:2, cop_task: {num: 1, max: 270.7µs, proc_keys: 0, rpc_num: 1, rpc_time: 252.5µs, copr_cache_hit_ratio: 0.00} data:Selection_28 170 Bytes N/A",
+          "        └─Selection_28 6.00 6 cop[tikv]  tikv_task:{time:35.6µs, loops:6}, scan_detail: {total_process_keys: 0, total_keys: 0, rocksdb: {delete_skipped_count: 0, key_skipped_count: 0, block: {cache_hit_count: 0, read_count: 0, read_byte: 0 Bytes}}} gt(test.t2.b, 1), not(isnull(test.t2.b)) N/A N/A",
+          "          └─TableFullScan_27 6.00 6 cop[tikv] table:t2 tikv_task:{time:12µs, loops:6}, scan_detail: {total_process_keys: 0, total_keys: 0, rocksdb: {delete_skipped_count: 0, key_skipped_count: 0, block: {cache_hit_count: 0, read_count: 0, read_byte: 0 Bytes}}} keep order:false N/A N/A"
+        ]
+      }
+    ]
+  },
+  {
+    "Name": "TestCBOWithoutAnalyze",
+    "Cases": [
+      {
+        "SQL": "explain select * from t1, t2 where t1.a = t2.a",
+        "Plan": [
+          "HashJoin_8 7.49 root  inner join, equal:[eq(test.t1.a, test.t2.a)]",
+          "├─TableReader_15(Build) 5.99 root  data:Selection_14",
+          "│ └─Selection_14 5.99 cop[tikv]  not(isnull(test.t2.a))",
+          "│   └─TableFullScan_13 6.00 cop[tikv] table:t2 keep order:false, stats:pseudo",
+          "└─TableReader_12(Probe) 5.99 root  data:Selection_11",
+          "  └─Selection_11 5.99 cop[tikv]  not(isnull(test.t1.a))",
+          "    └─TableFullScan_10 6.00 cop[tikv] table:t1 keep order:false, stats:pseudo"
+        ]
+      },
+      {
+        "SQL": "explain format = 'hint' select * from t1, t2 where t1.a = t2.a",
+        "Plan": [
+          "use_index(@`sel_1` `test`.`t1` ), use_index(@`sel_1` `test`.`t2` ), hash_join(@`sel_1` `test`.`t1`)"
+        ]
+      }
+    ]
+  },
+  {
+    "Name": "TestEstimation",
+    "Cases": [
+      {
+        "SQL": "explain select count(*) from t group by a",
+        "Plan": [
+          "HashAgg_9 2.00 root  group by:test.t.a, funcs:count(Column#4)->Column#3",
+          "└─TableReader_10 2.00 root  data:HashAgg_5",
+          "  └─HashAgg_5 2.00 cop[tikv]  group by:test.t.a, funcs:count(1)->Column#4",
+          "    └─TableFullScan_8 8.00 cop[tikv] table:t keep order:false"
+        ]
+      }
+    ]
+  },
+  {
+    "Name": "TestOutdatedAnalyze",
+    "Cases": [
+      {
+        "SQL": "explain select * from t where a <= 5 and b <= 5",
+        "Plan": [
+          "TableReader_7 8.84 root  data:Selection_6",
+          "└─Selection_6 8.84 cop[tikv]  le(test.t.a, 5), le(test.t.b, 5)",
+          "  └─TableFullScan_5 80.00 cop[tikv] table:t keep order:false, stats:pseudo"
+        ]
+      }
+    ]
+  },
+  {
+    "Name": "TestInconsistentEstimation",
+    "Cases": [
+      {
+        "SQL": "explain select * from t use index(ab) where a = 5 and c = 5",
+        "Plan": [
+          "IndexLookUp_8 10.00 root  ",
+          "├─IndexRangeScan_5(Build) 12.50 cop[tikv] table:t, index:ab(a, b) range:[5,5], keep order:false",
+          "└─Selection_7(Probe) 10.00 cop[tikv]  eq(test.t.c, 5)",
+          "  └─TableRowIDScan_6 12.50 cop[tikv] table:t keep order:false"
+        ]
+      }
+    ]
+  },
+  {
+    "Name": "TestUpdateProjEliminate",
+    "Cases": [
+      {
+        "SQL": "explain update t t1, (select distinct b from t) t2 set t1.b = t2.b",
+        "Plan": [
+          "Update_7 N/A root  N/A",
+          "└─HashJoin_10 80000000.00 root  CARTESIAN inner join",
+          "  ├─HashAgg_14(Build) 8000.00 root  group by:test.t.b, funcs:firstrow(test.t.b)->test.t.b",
+          "  │ └─TableReader_17 10000.00 root  data:TableFullScan_16",
+          "  │   └─TableFullScan_16 10000.00 cop[tikv] table:t keep order:false, stats:pseudo",
+          "  └─TableReader_13(Probe) 10000.00 root  data:TableFullScan_12",
+          "    └─TableFullScan_12 10000.00 cop[tikv] table:t1 keep order:false, stats:pseudo"
+        ]
+      }
+    ]
+  },
+  {
+    "Name": "TestTableDual",
+    "Cases": [
+      {
+        "SQL": "explain select * from t where 1 = 0",
+        "Plan": [
+          "TableDual_6 0.00 root  rows:0"
+        ]
+      },
+      {
+        "SQL": "explain select * from t where 1 = 1 limit 0",
+        "Plan": [
+          "TableDual_5 0.00 root  rows:0"
+        ]
+      }
+    ]
+  },
+  {
+    "Name": "TestIssue9805",
+    "Cases": [
+      {
+        "SQL": "explain analyze select /*+ TIDB_INLJ(t2) */ t1.id, t2.a from t1 join t2 on t1.a = t2.d where t1.b = 't2' and t1.d = 4",
+        "Plan": [
+          "IndexJoin_10 0.12 0 root  time:331.9µs, loops:1,  inner join, inner:IndexLookUp_9, outer key:test.t1.a, inner key:test.t2.d, equal cond:eq(test.t1.a, test.t2.d) 0 Bytes N/A",
+          "├─IndexLookUp_25(Build) 0.10 0 root  time:273.2µs, loops:1,  table_task: {total_time: 781.4µs, num: 0, concurrency: 5}  162 Bytes N/A",
+          "│ ├─IndexRangeScan_23(Build) 0.10 0 cop[tikv] table:t1, index:d(d, b, c) time:96.6µs, loops:1, cop_task: {num: 1, max: 116.7µs, proc_keys: 0, rpc_num: 1, rpc_time: 88.5µs, copr_cache_hit_ratio: 0.00}, tikv_task:{time:0s, loops:0}, scan_detail: {total_process_keys: 0, total_keys: 0, rocksdb: {delete_skipped_count: 0, key_skipped_count: 0, block: {cache_hit_count: 0, read_count: 0, read_byte: 0 Bytes}}} range:[4 \"t2\",4 \"t2\"], keep order:false, stats:pseudo N/A N/A",
+          "│ └─TableRowIDScan_24(Probe) 0.10 0 cop[tikv] table:t1  keep order:false, stats:pseudo N/A N/A",
+          "└─IndexLookUp_9(Probe) 1.00 0 root    N/A N/A",
+          "  ├─IndexRangeScan_7(Build) 1.00 0 cop[tikv] table:t2, index:d(d)  range: decided by [eq(test.t2.d, test.t1.a)], keep order:false, stats:pseudo N/A N/A",
+          "  └─TableRowIDScan_8(Probe) 1.00 0 cop[tikv] table:t2  keep order:false, stats:pseudo N/A N/A"
+        ]
+      }
+    ]
   }
 ]
